@@ -1,0 +1,11 @@
+# Environment variables
+.env
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+ag_news
+build_output.log
+digest.md
