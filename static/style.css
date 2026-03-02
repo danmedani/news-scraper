@@ -538,6 +538,21 @@ body {
     pointer-events: none;
 }
 
+.citation-link {
+    color: var(--accent);
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    transition: color 0.15s ease;
+}
+
+.citation-link:hover {
+    color: #79c0ff;
+    text-decoration-style: solid;
+}
+
 .col-meta .citation-badge {
     background-color: var(--card-hover);
     padding: 2px 6px;

@@ -253,6 +253,10 @@ async function generateDigest(topicIdx, title) {
                         titleBox.innerText = data.title;
                         contentBox.innerHTML = marked.parse(data.digest);
 
+                        if (data.articles) {
+                            linkifyCitations(contentBox, data.articles);
+                        }
+
                         // Generate Navigation Headers
                         renderHeaderNav(data.digest);
 
@@ -411,8 +415,7 @@ function setSort(type) {
 
 function countCitations(text, articles) {
     const counts = {};
-    // Look for [Article X, Y] or [Article X] patterns
-    const regex = /\[Article\s+([\d,\s]+)\]/g;
+    const regex = /\[(\d+(?:,\s*\d+)*)\]/g;
     let match;
     while ((match = regex.exec(text)) !== null) {
         const nums = match[1].split(',').map(n => parseInt(n.trim()));
@@ -425,26 +428,87 @@ function countCitations(text, articles) {
     return counts;
 }
 
+function scrollToSource(n) {
+    const allCards = document.querySelectorAll('.source-article-card');
+    allCards.forEach(c => c.classList.remove('highlight'));
+
+    const card = document.getElementById(`source-card-${n}`);
+    if (card) {
+        const rs = document.getElementById('right-sidebar');
+        if (rs && rs.classList.contains('collapsed')) {
+            rs.classList.remove('collapsed');
+            const btnS = document.getElementById('btn-show-sources');
+            if (btnS) btnS.classList.add('active');
+        }
+        card.classList.add('highlight');
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function linkifyCitations(container, articles) {
+    const citationRegex = /\[(\d+(?:,\s*\d+)*)\]/g;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while ((node = walker.nextNode())) {
+        if (citationRegex.test(node.textContent)) textNodes.push(node);
+        citationRegex.lastIndex = 0;
+    }
+
+    textNodes.forEach(textNode => {
+        const parent = textNode.parentNode;
+        const text = textNode.textContent;
+        const fragment = document.createDocumentFragment();
+        let lastIndex = 0;
+        citationRegex.lastIndex = 0;
+        let match;
+
+        while ((match = citationRegex.exec(text)) !== null) {
+            if (match.index > lastIndex) {
+                fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+            }
+
+            const nums = match[1].split(',').map(n => parseInt(n.trim())).filter(n => n >= 1 && n <= articles.length);
+
+            if (nums.length === 0) {
+                fragment.appendChild(document.createTextNode(match[0]));
+            } else {
+                fragment.appendChild(document.createTextNode('['));
+                nums.forEach((n, i) => {
+                    if (i > 0) fragment.appendChild(document.createTextNode(', '));
+                    const span = document.createElement('span');
+                    span.className = 'citation-link';
+                    span.dataset.article = n;
+                    span.textContent = n;
+                    span.addEventListener('click', () => scrollToSource(n));
+                    fragment.appendChild(span);
+                });
+                fragment.appendChild(document.createTextNode(']'));
+            }
+
+            lastIndex = match.index + match[0].length;
+        }
+
+        if (lastIndex < text.length) {
+            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+        }
+
+        parent.replaceChild(fragment, textNode);
+    });
+}
+
 function bindCitationLinks(articles) {
     const contentBox = document.getElementById('digest-content');
 
     contentBox.querySelectorAll('a').forEach(anchor => {
         anchor.addEventListener('click', (e) => {
             const href = anchor.getAttribute('href');
-
             const sourceIdx = articles.findIndex(a => a.Link === href || href.includes(a.Link));
 
             if (sourceIdx !== -1) {
                 e.preventDefault();
-
-                const allCards = document.querySelectorAll('.source-article-card');
-                allCards.forEach(c => c.classList.remove('highlight'));
-
-                const card = document.getElementById(`source-card-${sourceIdx + 1}`);
-                if (card) {
-                    card.classList.add('highlight');
-                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
+                scrollToSource(sourceIdx + 1);
             }
         });
     });
