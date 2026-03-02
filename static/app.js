@@ -116,6 +116,8 @@ async function fetchTopics(isRefresh = true) {
     }
 }
 
+let lastSelectedTitle = null;
+
 function renderTopics(topics) {
     const list = document.getElementById('topic-list');
     list.innerHTML = ''; // Clear existing
@@ -125,9 +127,24 @@ function renderTopics(topics) {
         return;
     }
 
-    topics.forEach((topic, idx) => {
+    // Map with original index before sorting
+    const enrichedTopics = topics.map((t, i) => ({ ...t, originalIndex: i }));
+
+    // Sort: Selected first, then Cached Digest, then the rest
+    const sortedTopics = enrichedTopics.sort((a, b) => {
+        if (a.title === lastSelectedTitle) return -1;
+        if (b.title === lastSelectedTitle) return 1;
+
+        if (a.has_cached_digest && !b.has_cached_digest) return -1;
+        if (!a.has_cached_digest && b.has_cached_digest) return 1;
+
+        return 0;
+    });
+
+    sortedTopics.forEach((topic) => {
         const li = document.createElement('li');
         li.className = 'topic-card';
+        if (topic.title === lastSelectedTitle) li.classList.add('active');
 
         let sourcesHTML = '';
         if (topic.source_counts) {
@@ -138,10 +155,13 @@ function renderTopics(topics) {
             sourcesHTML = '<span class="source-bubble">Unknown</span>';
         }
 
-        const count = topic.article_indices ? topic.article_indices.length : 0;
+        const cacheBadge = topic.has_cached_digest ? `<span class="cache-badge">Cached</span>` : '';
 
         li.innerHTML = `
-            <h4>${topic.title}</h4>
+            <div class="topic-header-row">
+                <h4>${topic.title}</h4>
+                ${cacheBadge}
+            </div>
             <p class="desc">${topic.description}</p>
             <div class="meta">
                 <div class="source-list">${sourcesHTML}</div>
@@ -149,11 +169,10 @@ function renderTopics(topics) {
         `;
 
         li.addEventListener('click', () => {
-            // Remove active state from all, add to this one
-            document.querySelectorAll('.topic-card').forEach(n => n.classList.remove('active'));
-            li.classList.add('active');
-
-            generateDigest(idx, topic.title);
+            lastSelectedTitle = topic.title;
+            // Immediate re-render to move to top
+            renderTopics(topics);
+            generateDigest(topic.originalIndex, topic.title);
         });
 
         list.appendChild(li);

@@ -12,11 +12,12 @@ import (
 
 // TopicCluster represents a group of related articles.
 type TopicCluster struct {
-	Title        string                  `json:"title"`
-	Description  string                  `json:"description"`
-	SourceCounts map[string]int          `json:"source_counts"`
-	Indices      []int                   `json:"article_indices"`
-	Articles     []ingest.ArticleSummary `json:"-"` // We map this later
+	Title           string                  `json:"title"`
+	Description     string                  `json:"description"`
+	SourceCounts    map[string]int          `json:"source_counts"`
+	Indices         []int                   `json:"article_indices"`
+	HasCachedDigest bool                    `json:"has_cached_digest"`
+	Articles        []ingest.ArticleSummary `json:"-"` // We map this later
 }
 
 // ClusterTopics uses Gemini to group the provided articles into 5-10 major topics.

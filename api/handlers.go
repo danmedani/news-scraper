@@ -61,6 +61,12 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 				feedStats[f.Name] = ingest.FeedStatus{Name: f.Name, URL: f.URL}
 			}
 			for _, c := range clusters {
+				compArticles := make([]services.CompressedArticle, len(c.Articles))
+				for i, a := range c.Articles {
+					compArticles[i] = services.CompressedArticle{Link: a.Link}
+				}
+				c.HasCachedDigest = services.IsDigestCached(compArticles)
+
 				for _, a := range c.Articles {
 					if s, ok := feedStats[a.SourceName]; ok {
 						s.CachedCount++
@@ -173,6 +179,16 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 
 	// Save Cache
 	log.Printf("Saving %d clusters to disk cache...", len(clusters))
+
+	// Check for cached digests for the UI
+	for _, c := range clusters {
+		compArticles := make([]services.CompressedArticle, len(c.Articles))
+		for i, a := range c.Articles {
+			compArticles[i] = services.CompressedArticle{Link: a.Link}
+		}
+		c.HasCachedDigest = services.IsDigestCached(compArticles)
+	}
+
 	if err := services.SaveClustersCache(clusters); err != nil {
 		log.Printf("Failed to save cluster cache: %v", err)
 	}
@@ -230,6 +246,28 @@ func (app *AppState) HandleGenerateDigest(w http.ResponseWriter, r *http.Request
 		if flusher != nil {
 			flusher.Flush()
 		}
+	}
+
+	// 0. Check for existing cached digest first
+	links := make([]string, len(selectedCluster.Articles))
+	for i, a := range selectedCluster.Articles {
+		links[i] = a.Link
+	}
+	if cachedContent, exists := services.GetCachedDigest(links); exists {
+		log.Printf("Synthesizing: Serving fully cached digest for '%s'", selectedCluster.Title)
+		resp := map[string]interface{}{
+			"title":            selectedCluster.Title,
+			"digest":           cachedContent,
+			"articles":         selectedCluster.Articles,
+			"skipped_articles": []ingest.ArticleSummary{},
+			"feed_stats":       app.FeedStats,
+		}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintf(w, "event: result\ndata: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
 	}
 
 	// 1. Scrape full content

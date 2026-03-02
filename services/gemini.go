@@ -21,9 +21,18 @@ func getDigestCacheDir() string {
 }
 
 func getDigestHash(articles []CompressedArticle) string {
-	hashes := make([]string, len(articles))
+	links := make([]string, len(articles))
 	for i, a := range articles {
-		h := sha256.Sum256([]byte(a.Link))
+		links[i] = a.Link
+	}
+	return GetDigestHashFromLinks(links)
+}
+
+// GetDigestHashFromLinks computes a stable hash from a list of article links
+func GetDigestHashFromLinks(links []string) string {
+	hashes := make([]string, len(links))
+	for i, l := range links {
+		h := sha256.Sum256([]byte(l))
 		hashes[i] = hex.EncodeToString(h[:])
 	}
 	sort.Strings(hashes)
@@ -31,6 +40,30 @@ func getDigestHash(articles []CompressedArticle) string {
 	combined := strings.Join(hashes, "")
 	finalHash := sha256.Sum256([]byte(combined))
 	return hex.EncodeToString(finalHash[:])
+}
+
+// IsDigestCached checks if a digest already exists for the given articles
+func IsDigestCached(articles []CompressedArticle) bool {
+	links := make([]string, len(articles))
+	for i, a := range articles {
+		links[i] = a.Link
+	}
+	_, exists := GetCachedDigest(links)
+	return exists
+}
+
+// GetCachedDigest returns the cached digest content if it exists
+func GetCachedDigest(links []string) (string, bool) {
+	if len(links) == 0 {
+		return "", false
+	}
+	hash := GetDigestHashFromLinks(links)
+	path := filepath.Join(getDigestCacheDir(), hash+".md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
 
 // GenerateDigest takes a list of compressed article facts
