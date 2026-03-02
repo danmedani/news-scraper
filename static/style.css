@@ -438,6 +438,21 @@ body {
     font-weight: 600;
 }
 
+.source-article-card.skipped {
+    border-left: 3px solid #f85149;
+    opacity: 0.7;
+}
+
+.source-article-card.skipped .article-ref {
+    color: #f85149;
+}
+
+.source-article-card.skipped .col-title {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+
 .col-meta .citation-badge {
     background-color: var(--card-hover);
     padding: 2px 6px;

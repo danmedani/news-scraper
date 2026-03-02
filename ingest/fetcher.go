@@ -26,6 +26,7 @@ type FeedStatus struct {
 	ArticleCount int    `json:"article_count"` // total fetched this run
 	NewCount     int    `json:"new_count"`     // brand new to the system
 	CachedCount  int    `json:"cached_count"`  // already existed in clusters
+	SkippedCount int    `json:"skipped_count"` // failed to scrape
 	Error        string `json:"error,omitempty"`
 }
 

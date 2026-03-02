@@ -160,7 +160,16 @@ async function generateDigest(topicIdx, title) {
         if (data.articles) {
             currentArticles = data.articles;
             currentCitations = countCitations(data.digest, data.articles);
-            renderSourceArticles();
+
+            // Render source articles including skipped ones
+            window.lastSkippedArticles = data.skipped_articles || [];
+            renderSourceArticles(window.lastSkippedArticles);
+
+            // Update feed health with latest skipped counts
+            if (data.feed_stats) {
+                renderFeedHealth(data.feed_stats);
+            }
+
             document.getElementById('digest-sources-panel').classList.remove('hidden');
             if (rightSidebar) rightSidebar.classList.remove('hidden');
             bindCitationLinks(data.articles);
@@ -187,13 +196,29 @@ function renderFeedHealth(stats) {
         const hasError = !!item.error;
         let colorClass = 'status-ok';
         let icon = '✅';
-        let desc = `${item.new_count || 0} new / ${item.cached_count || 0} cached`;
+
+        // Build description: prioritize "N new / M cached" if available
+        let descParts = [];
+        if (item.new_count > 0 || item.cached_count > 0) {
+            descParts.push(`${item.new_count || 0} new`);
+            descParts.push(`${item.cached_count || 0} cached`);
+        } else if (item.article_count > 0) {
+            descParts.push(`${item.article_count} item(s)`);
+        }
+
+        let desc = descParts.length > 0 ? descParts.join(' / ') : '0 articles found';
+
+        if (item.skipped_count > 0) {
+            desc += ` / <span style="color:#f85149; font-weight:bold;">${item.skipped_count} skipped</span>`;
+            if (colorClass === 'status-ok') colorClass = 'status-warn';
+            if (icon === '✅') icon = '⚠️';
+        }
 
         if (hasError) {
             colorClass = 'status-error';
             icon = '❌';
             desc = item.error;
-        } else if (item.article_count === 0) {
+        } else if (item.article_count === 0 && item.cached_count === 0) {
             colorClass = 'status-warn';
             icon = '⚠️';
             desc = '0 articles fetched';
@@ -211,23 +236,29 @@ function renderFeedHealth(stats) {
     });
 }
 
-function renderSourceArticles() {
+function renderSourceArticles(skippedArticles = []) {
     const list = document.getElementById('source-list-panel');
     const countLabel = document.getElementById('source-count');
     list.innerHTML = '';
 
     if (!currentArticles || currentArticles.length === 0) {
-        countLabel.innerText = '0 articles processed';
+        countLabel.innerText = '0 articles found';
         return;
     }
 
-    countLabel.innerText = `${currentArticles.length} articles processed`;
+    // Determine how many were actually scraped vs skipped
+    const normalizeUrl = (u) => u.split('?')[0].split('#')[0].trim();
+    const skippedSet = new Set((skippedArticles || []).map(sa => normalizeUrl(sa.Link)));
+    const scrapedCount = currentArticles.filter(a => !skippedSet.has(normalizeUrl(a.Link))).length;
 
-    // Prepare articles with their original index and citation count for sorting
+    countLabel.innerText = `${currentArticles.length} found (${scrapedCount} scraped / ${skippedSet.size} skipped)`;
+
+    // Map cluster articles to their original index, citation count, and skipped status
     let sorted = currentArticles.map((art, idx) => ({
         ...art,
         originalIndex: idx + 1,
-        citations: currentCitations[idx + 1] || 0
+        citations: currentCitations[idx + 1] || 0,
+        skipped: skippedSet.has(normalizeUrl(art.Link))
     }));
 
     if (currentSort === 'citations') {
@@ -238,18 +269,21 @@ function renderSourceArticles() {
 
     sorted.forEach((art) => {
         const li = document.createElement('li');
-        li.className = 'source-article-card';
+        li.className = 'source-article-card' + (art.skipped ? ' skipped' : '');
         li.id = `source-card-${art.originalIndex}`;
 
-        const citationBadge = art.citations > 0
+        const citationBadge = (art.citations > 0 && !art.skipped)
             ? `<span class="citation-badge">${art.citations} cit.</span>`
             : '';
+
+        const statusText = art.skipped ? ' [SKIPPED/PAYWALL]' : '';
 
         li.innerHTML = `
             <div class="col-meta">
                 <span class="article-ref">[Article ${art.originalIndex}]</span> 
                 ${art.SourceName}
                 ${citationBadge}
+                ${statusText}
             </div>
             <a href="${art.Link}" target="_blank" class="col-title">${art.Title}</a>
         `;
@@ -261,7 +295,7 @@ function setSort(type) {
     currentSort = type;
     document.getElementById('sort-num-btn').classList.toggle('active', type === 'number');
     document.getElementById('sort-cite-btn').classList.toggle('active', type === 'citations');
-    renderSourceArticles();
+    renderSourceArticles(window.lastSkippedArticles || []);
 }
 
 function countCitations(text, articles) {

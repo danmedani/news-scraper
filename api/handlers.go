@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/kdub/ag_news/ingest"
 	"github.com/kdub/ag_news/services"
@@ -13,8 +14,9 @@ import (
 
 // AppState holds the global state for our simple in-memory backend
 type AppState struct {
-	Clusters []*services.TopicCluster
-	Feeds    []ingest.FeedSource
+	Clusters  []*services.TopicCluster
+	Feeds     []ingest.FeedSource
+	FeedStats map[string]ingest.FeedStatus
 }
 
 // TopicsResponse wraps the clustered topics and the raw feed health stats
@@ -62,25 +64,60 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 		existingClusters = []*services.TopicCluster{}
 	}
 
-	// Identify new articles
+	// Initialize feedStats with all known sources from app.Feeds
+	// This ensures even sources that failed to fetch show up in the health panel.
+	feedStatsFull := make(map[string]ingest.FeedStatus)
+	for _, f := range app.Feeds {
+		if s, ok := feedStats[f.Name]; ok {
+			feedStatsFull[f.Name] = s
+		} else {
+			feedStatsFull[f.Name] = ingest.FeedStatus{
+				Name: f.Name,
+				URL:  f.URL,
+			}
+		}
+	}
+
+	// Identify new articles and populate cached counts from existing data
 	existingLinks := make(map[string]bool)
 	for _, c := range existingClusters {
 		for _, a := range c.Articles {
 			existingLinks[a.Link] = true
+
+			// Match source name case-insensitively
+			for name, stat := range feedStatsFull {
+				if strings.EqualFold(name, a.SourceName) {
+					stat.CachedCount++
+					feedStatsFull[name] = stat
+					break
+				}
+			}
 		}
 	}
 
 	var newArticles []ingest.ArticleSummary
 	for _, a := range summaries {
-		stat := feedStats[a.SourceName]
-		if !existingLinks[a.Link] {
-			newArticles = append(newArticles, a)
-			stat.NewCount++
-		} else {
-			stat.CachedCount++
+		// Identify which source this belongs to (case-insensitively)
+		var matchedName string
+		for name := range feedStatsFull {
+			if strings.EqualFold(name, a.SourceName) {
+				matchedName = name
+				break
+			}
 		}
-		feedStats[a.SourceName] = stat
+
+		if matchedName != "" {
+			stat := feedStatsFull[matchedName]
+			if !existingLinks[a.Link] {
+				newArticles = append(newArticles, a)
+				stat.NewCount++
+			}
+			feedStatsFull[matchedName] = stat
+		}
 	}
+
+	// Update feedStats for the response
+	feedStats = feedStatsFull
 
 	// 2. Cluster
 	log.Printf("Clustering %d new articles into %d existing...", len(newArticles), len(existingClusters))
@@ -107,6 +144,7 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 
 	// Save to memory so the frontend can retrieve them later
 	app.Clusters = clusters
+	app.FeedStats = feedStats
 
 	resp := TopicsResponse{
 		Clusters:  clusters,
@@ -136,17 +174,35 @@ func (app *AppState) HandleGenerateDigest(w http.ResponseWriter, r *http.Request
 
 	// 1. Scrape full content
 	var fullArticles []ingest.ArticleContent
+	var skippedArticles []ingest.ArticleSummary
+
+	// Reset skipped counts for the sources we are about to scrape in this topic
+	// to ensure the health panel stays in sync with the current cluster view.
+	for _, summary := range selectedCluster.Articles {
+		if stat, ok := app.FeedStats[summary.SourceName]; ok {
+			stat.SkippedCount = 0
+			app.FeedStats[summary.SourceName] = stat
+		}
+	}
+
 	for _, summary := range selectedCluster.Articles {
 		articleData, err := ingest.ScrapeArticle(summary)
 		if err != nil || len(articleData.FullText) < 100 {
 			log.Printf("Skipping [%s] '%s' (%s) due to scrape failure/paywall", summary.SourceName, summary.Title, summary.Link)
+			skippedArticles = append(skippedArticles, summary)
+
+			// Increment skipped count (now starting from 0 for this topic's sources)
+			if stat, ok := app.FeedStats[summary.SourceName]; ok {
+				stat.SkippedCount++
+				app.FeedStats[summary.SourceName] = stat
+			}
 			continue
 		}
 		fullArticles = append(fullArticles, *articleData)
 	}
 
-	if len(fullArticles) == 0 {
-		http.Error(w, `{"error": "Could not scrape sufficient text for this topic."}`, http.StatusUnprocessableEntity)
+	if len(fullArticles) == 0 && len(skippedArticles) == 0 {
+		http.Error(w, `{"error": "Could not scrape any articles for this topic."}`, http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -180,9 +236,11 @@ func (app *AppState) HandleGenerateDigest(w http.ResponseWriter, r *http.Request
 
 	// Ensure the response is sent back safely as JSON
 	response := map[string]interface{}{
-		"title":    selectedCluster.Title,
-		"digest":   digest,
-		"articles": selectedCluster.Articles,
+		"title":            selectedCluster.Title,
+		"digest":           digest,
+		"articles":         selectedCluster.Articles,
+		"skipped_articles": skippedArticles,
+		"feed_stats":       app.FeedStats,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
