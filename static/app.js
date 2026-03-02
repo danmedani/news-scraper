@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    fetchTopics();
+    fetchTopics(false); // Initial load: try cache first
 
     // -- Mini Strip Navigation --
     document.getElementById('btn-show-topics').addEventListener('click', () => {
@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('refresh-btn').addEventListener('click', () => {
-        fetchTopics();
+        fetchTopics(true); // Explicit refresh: fetch new
     });
 
     document.getElementById('sort-num-btn').addEventListener('click', () => {
@@ -66,18 +66,25 @@ let currentArticles = [];
 let currentCitations = {};
 let currentSort = 'number';
 
-async function fetchTopics() {
+async function fetchTopics(isRefresh = true) {
     const topicList = document.getElementById('topic-list');
     const loadingState = document.getElementById('loading-topics');
     const errorState = document.getElementById('error-topics');
+    const statusText = document.getElementById('status-text-topics');
 
     topicList.classList.add('hidden');
     errorState.classList.add('hidden');
     loadingState.classList.remove('hidden');
 
+    if (!isRefresh) {
+        statusText.innerText = "Loading cached topics...";
+    } else {
+        statusText.innerText = "Clustering latest headlines...";
+    }
+
     try {
         const limitVal = document.getElementById('feed-limit').value || 25;
-        const res = await fetch(`/api/topics?limit=${limitVal}`);
+        const res = await fetch(`/api/topics?limit=${limitVal}&refresh=${isRefresh}`);
 
         if (res.status === 429) {
             const data = await res.json();
@@ -104,7 +111,7 @@ async function fetchTopics() {
         errorState.classList.remove('hidden');
         errorState.innerHTML = `
             <p>Failed to load topics.</p>
-            <button class="retry-btn" onclick="fetchTopics()">Try Again</button>
+            <button class="retry-btn" onclick="fetchTopics(true)">Try Again</button>
         `;
     }
 }

@@ -41,12 +41,45 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Parse limit from query, default to 15
+	// Parse limit and refresh from query
 	limit := 15
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
 			limit = l
 		}
+	}
+	refresh := r.URL.Query().Get("refresh") != "false"
+
+	// 1. If not refreshing, try to load from cache immediately
+	if !refresh {
+		clusters, err := services.LoadClustersCache()
+		if err == nil && len(clusters) > 0 {
+			log.Printf("Loading topics from cache (refresh=false)...\n")
+			// Reconstruct basic feed stats from cached data
+			feedStats := make(map[string]ingest.FeedStatus)
+			for _, f := range app.Feeds {
+				feedStats[f.Name] = ingest.FeedStatus{Name: f.Name, URL: f.URL}
+			}
+			for _, c := range clusters {
+				for _, a := range c.Articles {
+					if s, ok := feedStats[a.SourceName]; ok {
+						s.CachedCount++
+						feedStats[a.SourceName] = s
+					}
+				}
+			}
+
+			app.Clusters = clusters
+			app.FeedStats = feedStats
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(TopicsResponse{
+				Clusters:  clusters,
+				FeedStats: feedStats,
+			})
+			return
+		}
+		log.Println("No cache found or error loading cache, proceeding to fetch...")
 	}
 
 	// 1. Fetch RSS items
