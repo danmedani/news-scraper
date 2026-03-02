@@ -123,6 +123,7 @@ body {
     font-size: 14px;
     padding: 5px;
     border-radius: 4px;
+    display: inline-block;
 }
 
 .icon-btn-small:hover {
