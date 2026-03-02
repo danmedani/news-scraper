@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleSidebar('secondary-sidebar', 'btn-show-health');
     });
 
+    document.getElementById('btn-show-sources').addEventListener('click', () => {
+        toggleSidebar('right-sidebar', 'btn-show-sources');
+    });
+
     // -- Collapse Buttons --
     document.getElementById('collapse-topics-btn').addEventListener('click', () => {
         toggleSidebar('sidebar', 'btn-show-topics');
@@ -160,8 +164,8 @@ async function generateDigest(topicIdx, title) {
     // UI transitions
     emptyState.classList.add('hidden');
     digestView.classList.add('hidden');
-    if (rightSidebar) rightSidebar.classList.add('hidden');
-    document.getElementById('digest-sources-panel').classList.add('hidden');
+
+    // Reset sidebars/panels
     loadingState.classList.remove('hidden');
     contentBox.innerHTML = '';
 
@@ -240,7 +244,15 @@ async function generateDigest(topicIdx, title) {
                             }
 
                             document.getElementById('digest-sources-panel').classList.remove('hidden');
-                            if (rightSidebar) rightSidebar.classList.remove('hidden');
+
+                            // Automatically show sources when digest is ready
+                            const rs = document.getElementById('right-sidebar');
+                            if (rs) {
+                                rs.classList.remove('collapsed');
+                                const btnS = document.getElementById('btn-show-sources');
+                                if (btnS) btnS.classList.add('active');
+                            }
+
                             bindCitationLinks(data.articles);
                         }
                     }
@@ -251,7 +263,7 @@ async function generateDigest(topicIdx, title) {
         console.error(err);
         loadingState.classList.add('hidden');
         digestView.classList.remove('hidden');
-        if (rightSidebar) rightSidebar.classList.add('hidden');
+        // Keep right sidebar state as is or hide it
         document.getElementById('digest-sources-panel').classList.add('hidden');
         titleBox.innerText = 'Error Generating Digest';
         contentBox.innerHTML = `<div class="error-box"><p>${err.message}</p></div>`;

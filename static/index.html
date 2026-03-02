@@ -26,11 +26,14 @@
             <button class="nav-icon-btn active" id="btn-show-topics" title="Topics">
                 <span class="icon">📰</span>
             </button>
+            <button class="nav-icon-btn" id="btn-show-health" title="Feed Health">
+                <span class="icon">📊</span>
+            </button>
             <button class="nav-icon-btn" id="btn-show-headers" title="Navigation">
                 <span class="icon">📑</span>
             </button>
-            <button class="nav-icon-btn" id="btn-show-health" title="Feed Health">
-                <span class="icon">📊</span>
+            <button class="nav-icon-btn" id="btn-show-sources" title="Source Articles">
+                <span class="icon">📚</span>
             </button>
             <div class="spacer"></div>
             <button class="nav-icon-btn" id="btn-settings" title="Settings">
@@ -79,21 +82,6 @@
             </div>
         </aside>
 
-        <!-- Navigation Sidebar: Headers hierarchy -->
-        <aside class="sidebar collapsed" id="headers-sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <span class="logo-text">Navigation</span>
-                </div>
-                <button id="collapse-headers-btn" class="icon-btn-small">◀</button>
-            </div>
-            <div class="nav-hierarchy-container">
-                <ul id="header-nav-list" class="header-nav-list">
-                    <div class="empty-nav-msg">Generate a digest to see navigation headers.</div>
-                </ul>
-            </div>
-        </aside>
-
         <!-- Secondary Sidebar: Feed Health (Floating/Collapsible) -->
         <aside class="secondary-sidebar collapsed" id="secondary-sidebar">
             <div id="feed-health-panel" class="sidebar-panel">
@@ -106,6 +94,21 @@
                         <!-- Health cards injected by JS -->
                     </ul>
                 </div>
+            </div>
+        </aside>
+
+        <!-- Navigation Sidebar: Headers hierarchy -->
+        <aside class="sidebar collapsed" id="headers-sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-text">Navigation</span>
+                </div>
+                <button id="collapse-headers-btn" class="icon-btn-small">◀</button>
+            </div>
+            <div class="nav-hierarchy-container">
+                <ul id="header-nav-list" class="header-nav-list">
+                    <div class="empty-nav-msg">Generate a digest to see navigation headers.</div>
+                </ul>
             </div>
         </aside>
 
@@ -141,7 +144,7 @@
         </main>
 
         <!-- Right Sidebar: Sources -->
-        <aside class="right-sidebar hidden" id="right-sidebar">
+        <aside class="right-sidebar collapsed" id="right-sidebar">
             <div id="digest-sources-panel" class="sidebar-panel">
                 <div class="sidebar-header">
                     <h3>Source Articles</h3>

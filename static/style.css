@@ -448,6 +448,14 @@ body {
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
+    transition: width 0.3s ease, margin-right 0.3s ease;
+}
+
+.right-sidebar.collapsed {
+    width: 0;
+    overflow: hidden;
+    border-left: none;
 }
 
 .sources-container {
