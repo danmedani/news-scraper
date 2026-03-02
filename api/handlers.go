@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -138,6 +139,7 @@ func (app *AppState) HandleGetTopics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save Cache
+	log.Printf("Saving %d clusters to disk cache...", len(clusters))
 	if err := services.SaveClustersCache(clusters); err != nil {
 		log.Printf("Failed to save cluster cache: %v", err)
 	}
@@ -172,12 +174,37 @@ func (app *AppState) HandleGenerateDigest(w http.ResponseWriter, r *http.Request
 	selectedCluster := app.Clusters[topicIdx]
 	ctx := context.Background()
 
+	// Set headers for SSE if the client supports it or we want to stream
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable proxy buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// Fallback to non-streaming if flusher is not available
+		log.Println("Streaming not supported by response writer")
+	}
+
+	sendProgress := func(step int, message string) {
+		event := map[string]interface{}{
+			"type":    "progress",
+			"step":    step,
+			"message": message,
+		}
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
 	// 1. Scrape full content
+	sendProgress(1, fmt.Sprintf("Scraping %d articles and decoding URLs...", len(selectedCluster.Articles)))
+
 	var fullArticles []ingest.ArticleContent
 	var skippedArticles []ingest.ArticleSummary
 
-	// Reset skipped counts for the sources we are about to scrape in this topic
-	// to ensure the health panel stays in sync with the current cluster view.
 	for _, summary := range selectedCluster.Articles {
 		if stat, ok := app.FeedStats[summary.SourceName]; ok {
 			stat.SkippedCount = 0
@@ -187,62 +214,81 @@ func (app *AppState) HandleGenerateDigest(w http.ResponseWriter, r *http.Request
 
 	for _, summary := range selectedCluster.Articles {
 		articleData, err := ingest.ScrapeArticle(summary)
-		if err != nil || len(articleData.FullText) < 100 {
-			log.Printf("Skipping [%s] '%s' (%s) due to scrape failure/paywall", summary.SourceName, summary.Title, summary.Link)
+		if err != nil {
+			log.Printf("Skipping [%s] '%s' (%s) due to error: %v", summary.SourceName, summary.Title, summary.Link, err)
 			skippedArticles = append(skippedArticles, summary)
-
-			// Increment skipped count (now starting from 0 for this topic's sources)
 			if stat, ok := app.FeedStats[summary.SourceName]; ok {
 				stat.SkippedCount++
 				app.FeedStats[summary.SourceName] = stat
 			}
 			continue
 		}
+
+		if len(articleData.FullText) < 100 {
+			log.Printf("Skipping [%s] '%s' (%s) - extracted text too short (%d chars)", summary.SourceName, summary.Title, summary.Link, len(articleData.FullText))
+			skippedArticles = append(skippedArticles, summary)
+			if stat, ok := app.FeedStats[summary.SourceName]; ok {
+				stat.SkippedCount++
+				app.FeedStats[summary.SourceName] = stat
+			}
+			continue
+		}
+
 		fullArticles = append(fullArticles, *articleData)
 	}
 
 	if len(fullArticles) == 0 && len(skippedArticles) == 0 {
-		http.Error(w, `{"error": "Could not scrape any articles for this topic."}`, http.StatusUnprocessableEntity)
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"message": "Could not scrape any articles for this topic."}`)
 		return
 	}
 
 	// 2. Compress the articles concurrently
-	log.Printf("Compressing %d articles...", len(fullArticles))
+	sendProgress(2, fmt.Sprintf("Extracting facts from %d articles...", len(fullArticles)))
 	compressedArticles, err := services.CompressArticles(ctx, fullArticles)
 	if err != nil {
 		log.Printf("Compression failed: %v", err)
 		if isLimit, wait := services.IsRateLimitError(err); isLimit {
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]interface{}{"error": "API Rate Limited", "retry_after": wait})
+			event := map[string]interface{}{
+				"type":        "error",
+				"error":       "API Rate Limited",
+				"retry_after": wait,
+			}
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 			return
 		}
-		http.Error(w, `{"error": "Failed to extract facts from articles"}`, http.StatusInternalServerError)
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"message": "Failed to extract facts from articles"}`)
 		return
 	}
 
 	// 3. Generate digest using compressed facts
-	log.Println("Generating synthesized digest...")
+	sendProgress(3, "Synthesizing final digest with Gemini...")
 	digest, err := services.GenerateDigest(ctx, compressedArticles)
 	if err != nil {
 		log.Printf("Digest generation failed: %v", err)
 		if isLimit, wait := services.IsRateLimitError(err); isLimit {
-			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(map[string]interface{}{"error": "API Rate Limited", "retry_after": wait})
+			event := map[string]interface{}{
+				"type":        "error",
+				"error":       "API Rate Limited",
+				"retry_after": wait,
+			}
+			data, _ := json.Marshal(event)
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 			return
 		}
-		http.Error(w, `{"error": "Failed to generate digest"}`, http.StatusInternalServerError)
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", `{"message": "Failed to generate digest"}`)
 		return
 	}
 
-	// Ensure the response is sent back safely as JSON
+	// Final result
 	response := map[string]interface{}{
+		"type":             "result",
 		"title":            selectedCluster.Title,
 		"digest":           digest,
 		"articles":         selectedCluster.Articles,
 		"skipped_articles": skippedArticles,
 		"feed_stats":       app.FeedStats,
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	data, _ := json.Marshal(response)
+	fmt.Fprintf(w, "event: result\ndata: %s\n\n", data)
 }

@@ -23,11 +23,16 @@ func ScrapeArticle(summary ArticleSummary) (*ArticleContent, error) {
 		Timeout: 10 * time.Second,
 	}
 
-	req, err := http.NewRequest("GET", summary.Link, nil)
+	// Resolve Google News redirection to get the real article URL
+	finalURL, err := ResolveGoogleNewsURL(summary.Link)
+	if err != nil {
+		finalURL = summary.Link
+	}
+
+	req, err := http.NewRequest("GET", finalURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	// NYT NYT Paywall bypass via cookies
 	if summary.SourceName == "New York Times" {
 		nytS := os.Getenv("NYT_S_COOKIE")
@@ -50,7 +55,7 @@ func ScrapeArticle(summary ArticleSummary) (*ArticleContent, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("bad status code: %d from %s", resp.StatusCode, summary.Link)
 	}
 
 	// We no longer read to a string and use simpleExtract, we pass the body to goquery
@@ -75,10 +80,11 @@ func extractArticleText(doc *goquery.Document) string {
 
 	var contentBuilder bytes.Buffer
 
-	// Target <p> and <h> tags primarily, as they usually hold the content
-	doc.Find("p, h1, h2, h3, h4, li, blockquote").Each(func(i int, s *goquery.Selection) {
+	// Target tags that usually hold the reading material
+	doc.Find("p, h1, h2, h3, h4, li, blockquote, article, .article-body, .article-content").Each(func(i int, s *goquery.Selection) {
 		text := strings.TrimSpace(s.Text())
-		if len(text) > 20 { // Filter out tiny/empty snippets
+		// Filter out strings that are likely noise or short nav/meta links
+		if len(text) > 30 && !strings.HasPrefix(text, "http") {
 			contentBuilder.WriteString(text)
 			contentBuilder.WriteString("\n\n")
 		}

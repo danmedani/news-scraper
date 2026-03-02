@@ -51,6 +51,7 @@ func FetchFeeds(ctx context.Context, feeds []FeedSource, maxItemsPerFeed int) ([
 			}
 
 			// Parse URL with context to allow cancellation/timeouts
+			log.Printf("Fetching feed %s (%s)...", f.Name, f.URL)
 			feedData, err := fp.ParseURLWithContext(f.URL, ctx)
 			if err != nil {
 				log.Printf("Error parsing feed %s (%s): %v", f.Name, f.URL, err)

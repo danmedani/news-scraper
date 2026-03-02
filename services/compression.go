@@ -79,10 +79,13 @@ func CompressArticles(ctx context.Context, articles []ingest.ArticleContent) ([]
 			if err == nil {
 				var cached CompressedArticle
 				if json.Unmarshal(data, &cached) == nil {
+					// log.Printf("Cache hit for article: %s", article.Title)
 					results[idx] = cached
 					return
 				}
 			}
+
+			log.Printf("Cache miss. Starting compression for: %s", article.Title)
 
 			// 2. Fetch via LLM API (acquire semaphore context)
 			sem <- struct{}{}

@@ -1,19 +1,34 @@
 document.addEventListener('DOMContentLoaded', () => {
     fetchTopics();
 
-    document.getElementById('refresh-btn').addEventListener('click', () => {
-        fetchTopics();
+    // -- Mini Strip Navigation --
+    document.getElementById('btn-show-topics').addEventListener('click', () => {
+        toggleSidebar('sidebar', 'btn-show-topics');
     });
 
-    document.getElementById('toggle-health-btn').addEventListener('click', () => {
-        const sidebar = document.getElementById('secondary-sidebar');
-        const caret = document.getElementById('health-caret');
-        sidebar.classList.toggle('collapsed');
-        if (sidebar.classList.contains('collapsed')) {
-            caret.innerText = '▼';
-        } else {
-            caret.innerText = '▲';
-        }
+    document.getElementById('btn-show-headers').addEventListener('click', () => {
+        toggleSidebar('headers-sidebar', 'btn-show-headers');
+    });
+
+    document.getElementById('btn-show-health').addEventListener('click', () => {
+        toggleSidebar('secondary-sidebar', 'btn-show-health');
+    });
+
+    // -- Collapse Buttons --
+    document.getElementById('collapse-topics-btn').addEventListener('click', () => {
+        toggleSidebar('sidebar', 'btn-show-topics');
+    });
+
+    document.getElementById('collapse-headers-btn').addEventListener('click', () => {
+        toggleSidebar('headers-sidebar', 'btn-show-headers');
+    });
+
+    document.getElementById('collapse-health-btn').addEventListener('click', () => {
+        toggleSidebar('secondary-sidebar', 'btn-show-health');
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        fetchTopics();
     });
 
     document.getElementById('sort-num-btn').addEventListener('click', () => {
@@ -24,6 +39,24 @@ document.addEventListener('DOMContentLoaded', () => {
         setSort('citations');
     });
 });
+
+function toggleSidebar(sidebarId, btnId) {
+    const sidebar = document.getElementById(sidebarId);
+    const btn = document.getElementById(btnId);
+
+    // Toggle the target sidebar
+    const isCollapsed = sidebar.classList.toggle('collapsed');
+
+    // Update button active state
+    if (btn) btn.classList.toggle('active', !isCollapsed);
+}
+
+function closeSidebar(sidebarId, btnId) {
+    const sidebar = document.getElementById(sidebarId);
+    const btn = document.getElementById(btnId);
+    if (sidebar) sidebar.classList.add('collapsed');
+    if (btn) btn.classList.remove('active');
+}
 
 let currentArticles = [];
 let currentCitations = {};
@@ -46,8 +79,8 @@ async function fetchTopics() {
             const data = await res.json();
             if (data.feed_stats) {
                 renderFeedHealth(data.feed_stats);
-                document.getElementById('secondary-sidebar').classList.remove('collapsed');
-                document.getElementById('health-caret').innerText = '▲';
+                closeSidebar('sidebar', 'btn-show-topics');
+                toggleSidebar('secondary-sidebar', 'btn-show-health');
             }
             handleTopicsRateLimit(data.retry_after);
             return;
@@ -132,47 +165,87 @@ async function generateDigest(topicIdx, title) {
     loadingState.classList.remove('hidden');
     contentBox.innerHTML = '';
 
-    document.getElementById('loading-digest-topic').innerText = `Synthesizing report for: ${title}...`;
+    document.getElementById('loading-status-text').innerText = `Preparing sources for: ${title}...`;
+    document.getElementById('progress-step').innerText = "Initializing...";
 
     try {
-        const res = await fetch(`/api/digest?topicId=${topicIdx}`, { method: 'POST' });
+        const response = await fetch(`/api/digest?topicId=${topicIdx}`, { method: 'POST' });
 
-        if (res.status === 429) {
-            const data = await res.json();
-            handleDigestRateLimit(data.retry_after, () => generateDigest(topicIdx, title));
-            return;
+        if (!response.ok) {
+            const errBody = await response.json().catch(() => ({}));
+            throw new Error(errBody.error || `HTTP ${response.status}`);
         }
 
-        if (!res.ok) {
-            const errBody = await res.json().catch(() => ({}));
-            throw new Error(errBody.error || `HTTP ${res.status}`);
-        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-        const data = await res.json();
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-        // Render Markdown
-        titleBox.innerText = data.title;
-        contentBox.innerHTML = marked.parse(data.digest);
+            buffer += decoder.decode(value, { stream: true });
 
-        loadingState.classList.add('hidden');
-        digestView.classList.remove('hidden');
+            // Process SSE chunks
+            const events = buffer.split('\n\n');
+            buffer = events.pop(); // Keep partial chunk in buffer
 
-        if (data.articles) {
-            currentArticles = data.articles;
-            currentCitations = countCitations(data.digest, data.articles);
+            for (const rawEvent of events) {
+                if (!rawEvent.trim()) continue;
 
-            // Render source articles including skipped ones
-            window.lastSkippedArticles = data.skipped_articles || [];
-            renderSourceArticles(window.lastSkippedArticles);
+                const lines = rawEvent.split('\n');
+                let eventType = 'message';
+                let dataStr = '';
 
-            // Update feed health with latest skipped counts
-            if (data.feed_stats) {
-                renderFeedHealth(data.feed_stats);
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        eventType = line.replace('event: ', '').trim();
+                    } else if (line.startsWith('data: ')) {
+                        dataStr = line.replace('data: ', '').trim();
+                    }
+                }
+
+                if (dataStr) {
+                    const data = JSON.parse(dataStr);
+
+                    if (eventType === 'progress') {
+                        document.getElementById('progress-step').innerText = `Step ${data.step} of 3`;
+                        document.getElementById('loading-status-text').innerText = data.message;
+                    } else if (eventType === 'error') {
+                        if (data.error === "API Rate Limited") {
+                            handleDigestRateLimit(data.retry_after, () => generateDigest(topicIdx, title));
+                        } else {
+                            throw new Error(data.message || "Failed to generate digest");
+                        }
+                        return;
+                    } else if (eventType === 'result') {
+                        // Render final result
+                        titleBox.innerText = data.title;
+                        contentBox.innerHTML = marked.parse(data.digest);
+
+                        // Generate Navigation Headers
+                        renderHeaderNav(data.digest);
+
+                        loadingState.classList.add('hidden');
+                        digestView.classList.remove('hidden');
+
+                        if (data.articles) {
+                            currentArticles = data.articles;
+                            currentCitations = countCitations(data.digest, data.articles);
+                            window.lastSkippedArticles = data.skipped_articles || [];
+                            renderSourceArticles(window.lastSkippedArticles);
+
+                            if (data.feed_stats) {
+                                renderFeedHealth(data.feed_stats);
+                            }
+
+                            document.getElementById('digest-sources-panel').classList.remove('hidden');
+                            if (rightSidebar) rightSidebar.classList.remove('hidden');
+                            bindCitationLinks(data.articles);
+                        }
+                    }
+                }
             }
-
-            document.getElementById('digest-sources-panel').classList.remove('hidden');
-            if (rightSidebar) rightSidebar.classList.remove('hidden');
-            bindCitationLinks(data.articles);
         }
     } catch (err) {
         console.error(err);
@@ -408,4 +481,46 @@ function handleDigestRateLimit(seconds, retryCallback) {
             updateUI();
         }
     }, 1000);
+}
+
+function renderHeaderNav(markdown) {
+    const navList = document.getElementById('header-nav-list');
+    navList.innerHTML = '';
+
+    const contentBox = document.getElementById('digest-content');
+
+    // First pass: inject IDs into headers in the rendered DOM
+    const allHeaders = contentBox.querySelectorAll('h2, h3, h4');
+    allHeaders.forEach((h, idx) => {
+        h.id = `digest-h-${idx}`;
+    });
+
+    let headerCount = 0;
+    allHeaders.forEach((h, idx) => {
+        headerCount++;
+        const level = h.tagName.toLowerCase(); // 'h1', 'h2', 'h3'
+        const title = h.innerText.replace(/\[Article\s+[\d,\s]+\]/g, '').trim();
+
+        const li = document.createElement('li');
+        li.className = `header-nav-item ${level}`;
+        li.innerText = title;
+        li.addEventListener('click', () => {
+            const target = document.getElementById(`digest-h-${idx}`);
+            const container = document.querySelector('.main-content');
+            if (target && container) {
+                const targetTop = target.offsetTop;
+                container.scrollTo({
+                    top: targetTop - 40, // Offset for some breathing room
+                    behavior: 'smooth'
+                });
+                document.querySelectorAll('.header-nav-item').forEach(n => n.classList.remove('active'));
+                li.classList.add('active');
+            }
+        });
+        navList.appendChild(li);
+    });
+
+    if (headerCount === 0) {
+        navList.innerHTML = `<div class="empty-nav-msg">No headers found in this digest.</div>`;
+    }
 }

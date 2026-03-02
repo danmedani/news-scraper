@@ -21,22 +21,38 @@
 <body class="theme-dark">
 
     <div class="app-container">
-        <!-- Sidebar: Topics -->
+        <!-- Persistent Mini Strip for Navigation -->
+        <nav class="mini-strip" id="mini-strip">
+            <button class="nav-icon-btn active" id="btn-show-topics" title="Topics">
+                <span class="icon">📰</span>
+            </button>
+            <button class="nav-icon-btn" id="btn-show-headers" title="Navigation">
+                <span class="icon">📑</span>
+            </button>
+            <button class="nav-icon-btn" id="btn-show-health" title="Feed Health">
+                <span class="icon">📊</span>
+            </button>
+            <div class="spacer"></div>
+            <button class="nav-icon-btn" id="btn-settings" title="Settings">
+                <span class="icon">⚙️</span>
+            </button>
+        </nav>
+
+        <!-- Main Sidebar: Topics -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
-                    <span class="logo-icon">📰</span>
-                    <span class="logo-text">AgNews</span>
+                    <span class="logo-text">Events</span>
                 </div>
-                <div class="limit-setting">
-                    <label for="feed-limit">Depth:</label>
-                    <input type="number" id="feed-limit" value="25" min="1" max="50" class="input-limit">
-                </div>
+                <button id="collapse-topics-btn" class="icon-btn-small" title="Collapse Sidebar">◀</button>
             </div>
 
             <div class="topics-container">
                 <div class="topics-header">
-                    <h3>Today's Top Events</h3>
+                    <div class="limit-setting">
+                        <label for="feed-limit">Depth:</label>
+                        <input type="number" id="feed-limit" value="25" min="1" max="50" class="input-limit">
+                    </div>
                     <button id="refresh-btn" class="icon-btn" title="Refresh Topics">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
                             fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -49,7 +65,7 @@
 
                 <div id="loading-topics" class="loading-state">
                     <div class="spinner"></div>
-                    <p>Clustering latest headlines...</p>
+                    <p id="status-text-topics">Clustering latest headlines...</p>
                 </div>
 
                 <ul id="topic-list" class="topic-list hidden">
@@ -61,18 +77,29 @@
                     <button class="retry-btn" onclick="fetchTopics()">Try Again</button>
                 </div>
             </div>
-
-            <button id="toggle-health-btn" class="toggle-health-btn" title="Toggle Feed Health">
-                📊 Feed Health <span id="health-caret">▼</span>
-            </button>
         </aside>
 
-        <!-- Secondary Sidebar: Feed Health -->
+        <!-- Navigation Sidebar: Headers hierarchy -->
+        <aside class="sidebar collapsed" id="headers-sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-text">Navigation</span>
+                </div>
+                <button id="collapse-headers-btn" class="icon-btn-small">◀</button>
+            </div>
+            <div class="nav-hierarchy-container">
+                <ul id="header-nav-list" class="header-nav-list">
+                    <div class="empty-nav-msg">Generate a digest to see navigation headers.</div>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Secondary Sidebar: Feed Health (Floating/Collapsible) -->
         <aside class="secondary-sidebar collapsed" id="secondary-sidebar">
             <div id="feed-health-panel" class="sidebar-panel">
                 <div class="sidebar-header">
-                    <h3>Feed Health Overview</h3>
-                    <p class="subtitle">Live extraction metrics</p>
+                    <h3>Feed Health</h3>
+                    <button id="collapse-health-btn" class="icon-btn-small">◀</button>
                 </div>
                 <div class="sources-container">
                     <ul id="feed-health-list" class="source-list-panel">
@@ -96,7 +123,10 @@
             <div id="loading-digest" class="loading-state hidden">
                 <div class="pulse-ring"></div>
                 <h2>Synthesizing Digest...</h2>
-                <p class="loading-meta" id="loading-digest-topic">Scraping full article text across sources</p>
+                <p class="loading-meta" id="loading-status-text">Scraping full article text across sources</p>
+                <div class="progress-indicator">
+                    <span id="progress-step">Step 1 of 3</span>
+                </div>
             </div>
 
             <!-- Completed Digest View -->
